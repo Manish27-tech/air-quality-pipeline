@@ -134,3 +134,58 @@ def episode_metrics(y_true, predictions,
         "false_negatives": int(fn),
         "true_negatives": int(tn),
     }
+
+
+# --------------------------------------------------------------------------- #
+# Comparison and tuning
+# --------------------------------------------------------------------------- #
+def _folds() -> TimeSeriesSplit:
+    return TimeSeriesSplit(n_splits=config.CV_FOLDS)
+
+
+def compare_models(X_train, y_train, include_lags: bool) -> list[dict]:
+    numeric, categorical = feature_columns(include_lags)
+    scoring = {"r2": "r2", "neg_rmse": "neg_root_mean_squared_error",
+               "neg_mae": "neg_mean_absolute_error"}
+
+    rows = []
+    print(f"[model] cross-validating {4 if include_lags else 3} candidate families "
+          f"({'with' if include_lags else 'without'} lags)")
+    for name, estimator in candidate_models().items():
+        pipeline = Pipeline([
+            ("preprocess", build_preprocessor(numeric, categorical)),
+            ("model", estimator),
+        ])
+        scores = cross_validate(pipeline, X_train, y_train, cv=_folds(),
+                                scoring=scoring, n_jobs=1, error_score="raise")
+        rows.append({
+            "model": name,
+            "r2_mean": round(float(scores["test_r2"].mean()), 4),
+            "rmse_mean": round(float(-scores["test_neg_rmse"].mean()), 3),
+            "mae_mean": round(float(-scores["test_neg_mae"].mean()), 3),
+            "fit_seconds": round(float(scores["fit_time"].mean()), 1),
+        })
+        print(f"[model]   {name:<24} r2={rows[-1]['r2_mean']:.4f} "
+              f"rmse={rows[-1]['rmse_mean']:.2f}")
+    return sorted(rows, key=lambda row: row["rmse_mean"])
+
+
+def tune_model(name: str, X_train, y_train, include_lags: bool
+               ) -> tuple[Pipeline, dict]:
+    numeric, categorical = feature_columns(include_lags)
+    pipeline = Pipeline([
+        ("preprocess", build_preprocessor(numeric, categorical)),
+        ("model", candidate_models()[name]),
+    ])
+    search = RandomizedSearchCV(
+        pipeline, SEARCH_SPACES[name], n_iter=config.SEARCH_ITER,
+        scoring="neg_root_mean_squared_error",
+        cv=TimeSeriesSplit(n_splits=config.SEARCH_FOLDS),
+        random_state=config.RANDOM_STATE, n_jobs=1, refit=True,
+    )
+    search.fit(X_train, y_train)
+    params = {key.replace("model__", ""):
+              (value.item() if hasattr(value, "item") else value)
+              for key, value in search.best_params_.items()}
+    print(f"[model] tuned {name}: cv rmse={-search.best_score_:.2f}")
+    return search.best_estimator_, params
