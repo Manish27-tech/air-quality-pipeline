@@ -46,3 +46,24 @@ def add_time_features(df: pd.DataFrame) -> pd.DataFrame:
     out["hour_sin"] = np.sin(2 * np.pi * out["hour"] / 24)
     out["hour_cos"] = np.cos(2 * np.pi * out["hour"] / 24)
     return out
+
+
+# --------------------------------------------------------------------------- #
+# Weather features
+# --------------------------------------------------------------------------- #
+def add_weather_features(df: pd.DataFrame) -> pd.DataFrame:
+    """Turn the raw meteorological columns into interpretable quantities.
+
+    ``TEMP - DEWP`` is the dew-point depression: near zero means humid air and a
+    high chance of haze. ``Iws`` is a *cumulative* wind run, so the raw value grows
+    with the averaging window and is heavily right-skewed; the log stabilises it.
+    """
+    out = df.copy()
+
+    out["dew_point_depression"] = out["TEMP"] - out["DEWP"]
+    out["log_wind"] = np.log1p(out["Iws"].clip(lower=0))
+    out["pressure_anomaly"] = out["PRES"] - 1016.45
+
+    # Wind direction stays categorical and is one-hot encoded inside the pipeline,
+    # so no dummy block is created here.
+    return out
