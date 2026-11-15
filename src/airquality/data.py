@@ -48,3 +48,38 @@ def download(force: bool = False, verbose: bool = True) -> Path:
         print(f"[data] saved {destination.name} "
               f"(sha256={_sha256(destination)[:12]}...)")
     return destination
+
+
+# --------------------------------------------------------------------------- #
+# Loading
+# --------------------------------------------------------------------------- #
+def load_raw(path: Path | None = None) -> pd.DataFrame:
+    """Read the CSV, parse the calendar columns and build a timestamp.
+
+    Only the literal ``NA`` token is treated as missing — ``keep_default_na`` is
+    disabled so that the wind-direction code ``cv`` and numeric strings are never
+    reinterpreted.
+    """
+    path = path or config.RAW_DIR / config.RAW_FILENAME
+    if not path.exists():
+        download(verbose=False)
+
+    frame = pd.read_csv(
+        path,
+        na_values=[config.MISSING_TOKEN],
+        keep_default_na=False,
+    )
+    frame.columns = [column.strip() for column in frame.columns]
+    frame = frame.rename(columns={"No": "no"})
+    frame = add_timestamp(frame)
+    return frame
+
+
+def add_timestamp(frame: pd.DataFrame) -> pd.DataFrame:
+    """Return a copy with a parsed ``timestamp`` column (idempotent)."""
+    out = frame.copy()
+    if config.TIMESTAMP in out.columns:
+        out[config.TIMESTAMP] = pd.to_datetime(out[config.TIMESTAMP])
+        return out
+    out[config.TIMESTAMP] = pd.to_datetime(out[config.TIME_COLUMNS].astype(int))
+    return out
