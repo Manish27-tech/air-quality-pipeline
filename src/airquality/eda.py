@@ -297,3 +297,24 @@ def plot_weather_scatter(df: pd.DataFrame) -> None:
         ax.set_ylim(0, 500)
     fig.suptitle("Meteorology explains the broad strokes, not the spikes", fontsize=13)
     _save(fig, "08_weather_scatter.png")
+
+
+# --------------------------------------------------------------------------- #
+# Orchestration
+# --------------------------------------------------------------------------- #
+def run_eda(df: pd.DataFrame) -> dict:
+    summary = compute_summary(df)
+
+    plot_target_distribution(df)
+    plot_series(df)
+    plot_seasonal_diurnal(df)
+    plot_wind_effect(df)
+    plot_correlation_heatmap(df)
+    plot_missing_heatmap(df)
+    plot_episodes(df)
+    plot_weather_scatter(df)
+
+    path = config.REPORT_DIR / "eda_summary.json"
+    path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
+    print(f"[eda] summary -> {path.relative_to(config.ROOT)}")
+    return summary
