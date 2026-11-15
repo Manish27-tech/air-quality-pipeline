@@ -93,3 +93,44 @@ SEARCH_SPACES = {
         "model__l2_regularization": loguniform(1e-2, 10),
     },
 }
+
+
+# --------------------------------------------------------------------------- #
+# Metrics
+# --------------------------------------------------------------------------- #
+def regression_metrics(y_true, predictions) -> dict:
+    y_true = np.asarray(y_true, dtype=float)
+    predictions = np.asarray(predictions, dtype=float)
+    error = predictions - y_true
+    return {
+        "rmse": round(float(np.sqrt(mean_squared_error(y_true, predictions))), 3),
+        "mae": round(float(mean_absolute_error(y_true, predictions)), 3),
+        "r2": round(float(r2_score(y_true, predictions)), 4),
+        "bias": round(float(error.mean()), 3),
+        "within_25": round(float((np.abs(error) <= 25).mean()), 4),
+        "hours": int(len(y_true)),
+    }
+
+
+def episode_metrics(y_true, predictions,
+                    threshold: float = config.EPISODE_THRESHOLD) -> dict:
+    """Detection quality for heavy-pollution hours.
+
+    A missed episode is a public-health failure, so recall is read first; the
+    precision cost of over-alerting is reported alongside it.
+    """
+    actual = (np.asarray(y_true, dtype=float) > threshold).astype(int)
+    flagged = (np.asarray(predictions, dtype=float) > threshold).astype(int)
+    tn, fp, fn, tp = confusion_matrix(actual, flagged, labels=[0, 1]).ravel()
+    return {
+        "threshold": threshold,
+        "observed_episodes": int(actual.sum()),
+        "flagged_hours": int(flagged.sum()),
+        "precision": round(float(precision_score(actual, flagged, zero_division=0)), 4),
+        "recall": round(float(recall_score(actual, flagged, zero_division=0)), 4),
+        "f1": round(float(f1_score(actual, flagged, zero_division=0)), 4),
+        "true_positives": int(tp),
+        "false_positives": int(fp),
+        "false_negatives": int(fn),
+        "true_negatives": int(tn),
+    }
