@@ -193,3 +193,42 @@ def plot_seasonal_diurnal(df: pd.DataFrame) -> None:
     axes[1].set_title("Diurnal profile by season")
     axes[1].legend()
     _save(fig, "03_seasonal_diurnal.png")
+
+
+# --------------------------------------------------------------------------- #
+# Weather relationships
+# --------------------------------------------------------------------------- #
+def plot_wind_effect(df: pd.DataFrame) -> None:
+    engineered = add_features(df)
+    wind_bins = pd.qcut(engineered["Iws"], 5, duplicates="drop")
+
+    fig, axes = plt.subplots(1, 2, figsize=(13, 4.4))
+    order = ["NW", "NE", "SE", "cv"]
+    sns.boxplot(data=engineered, x="cbwd", y=config.TARGET, order=order, ax=axes[0],
+                showfliers=False, hue="cbwd", legend=False,
+                palette=["#4C72B0", "#55A868", "#C44E52", "#8172B2"])
+    axes[0].set_xlabel("Wind direction")
+    axes[0].set_ylabel("PM2.5 (µg/m³)")
+    axes[0].set_title("Northwesterly air is clean; calm air is not")
+
+    means = engineered.groupby(wind_bins, observed=True)[config.TARGET].mean()
+    centres = [interval.mid for interval in means.index]
+    axes[1].plot(centres, means.values, marker="o", color="#C44E52", linewidth=2)
+    axes[1].set_xlabel("Cumulative wind run Iws (quintile midpoint)")
+    axes[1].set_ylabel("Mean PM2.5 (µg/m³)")
+    axes[1].set_title("More wind, less pollution")
+    _save(fig, "04_wind_effect.png")
+
+
+def plot_correlation_heatmap(df: pd.DataFrame) -> None:
+    engineered = add_features(df)
+    columns = ["DEWP", "TEMP", "PRES", "Iws", "Is", "Ir", "dew_point_depression",
+               "log_wind", "pressure_anomaly", "hour", "is_weekend", config.TARGET]
+    correlation = engineered[columns].corr(numeric_only=True)
+    mask = np.triu(np.ones_like(correlation, dtype=bool), k=1)
+
+    fig, ax = plt.subplots(figsize=(9.5, 7.5))
+    sns.heatmap(correlation, mask=mask, annot=True, fmt=".2f", cmap="vlag", center=0,
+                square=True, cbar_kws={"shrink": 0.75}, annot_kws={"size": 8}, ax=ax)
+    ax.set_title("Correlation matrix of weather and calendar features")
+    _save(fig, "05_correlation_heatmap.png")
