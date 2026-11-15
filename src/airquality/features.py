@@ -92,3 +92,54 @@ def add_lag_features(df: pd.DataFrame) -> pd.DataFrame:
 
     out["pm_diff_24"] = out["pm_lag_1"] - out["pm_lag_24"]
     return out
+
+
+# --------------------------------------------------------------------------- #
+# Contract
+# --------------------------------------------------------------------------- #
+def add_features(df: pd.DataFrame) -> pd.DataFrame:
+    return add_weather_features(add_time_features(df))
+
+
+def feature_columns(include_lags: bool = False) -> tuple[list[str], list[str]]:
+    numeric = [*config.NUMERIC_FEATURES, *config.ENGINEERED_NUMERIC]
+    categorical = [*config.CATEGORICAL_FEATURES, *config.ENGINEERED_CATEGORICAL]
+
+    if include_lags:
+        numeric = [*numeric, *config.LAG_COLUMNS]
+    return numeric, categorical
+
+
+def build_feature_matrix(df: pd.DataFrame, include_lags: bool = False
+                         ) -> tuple[pd.DataFrame, pd.Series]:
+    """Build the design matrix, dropping every row whose target or lags are missing."""
+    engineered = add_features(df)
+    if include_lags:
+        engineered = add_lag_features(engineered)
+    numeric, categorical = feature_columns(include_lags)
+
+    frame = engineered.copy()
+    frame = frame[frame[config.TARGET].notna()]
+
+    features = frame[numeric + categorical].copy()
+    for column in categorical:
+        features[column] = (
+            features[column].astype(object).where(features[column].notna(), np.nan)
+        )
+    for column in numeric:
+        features[column] = pd.to_numeric(features[column], errors="coerce").astype(float)
+
+    if include_lags:
+        complete = features.notna().all(axis=1)
+        features = features.loc[complete]
+        frame = frame.loc[complete]
+
+    target = frame[config.TARGET].astype(float)
+    features.index = frame.index
+    return features, target
+
+
+def episode_target(values: pd.Series, threshold: float = config.EPISODE_THRESHOLD
+                   ) -> pd.Series:
+    """Binary heavy-pollution flag used for detection metrics."""
+    return (values > threshold).astype(int)
