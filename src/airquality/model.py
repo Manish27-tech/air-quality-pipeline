@@ -260,3 +260,211 @@ def baseline_metrics(df: pd.DataFrame) -> dict:
         "persistence": regression_metrics(y_test.to_numpy()[use], persistence[use]),
         "persistence_episodes": episode_metrics(y_test.to_numpy()[use], persistence[use]),
     }
+
+
+# --------------------------------------------------------------------------- #
+# Plots
+# --------------------------------------------------------------------------- #
+def _save(fig: plt.Figure, filename: str) -> None:
+    fig.savefig(config.FIGURE_DIR / filename, dpi=config.FIG_DPI, bbox_inches="tight")
+    plt.close(fig)
+
+
+def plot_scenario_comparison(scenarios: dict, baselines: dict) -> None:
+    frame = pd.DataFrame([
+        {"scenario": name, "RMSE": block["test"]["rmse"], "R²": block["test"]["r2"]}
+        for name, block in scenarios.items()
+    ])
+
+    fig, axes = plt.subplots(1, 2, figsize=(12, 4.4))
+    for ax, metric, baseline_key, colour in (
+        (axes[0], "RMSE", "rmse", "#C44E52"),
+        (axes[1], "R²", "r2", "#4C72B0"),
+    ):
+        sns.barplot(data=frame, x="scenario", y=metric, ax=ax, color=colour)
+        ax.bar_label(ax.containers[0], fmt="%.3f" if metric == "R²" else "%.2f",
+                     fontsize=9)
+        baseline = baselines["persistence"][baseline_key]
+        ax.axhline(baseline, color="black", linestyle="--", linewidth=1.3,
+                   label=f"persistence = {baseline:.2f}")
+        ax.set_xlabel("")
+        ax.set_title(f"Hold-out 2014 — {metric}")
+        ax.legend(loc="best", fontsize=8)
+    fig.suptitle("Lagged PM2.5 only just beats 'tomorrow equals today'", fontsize=13)
+    _save(fig, "09_scenario_comparison.png")
+
+
+def plot_forecast_window(scenarios: dict) -> None:
+    start = pd.Timestamp("2014-01-05")
+    end = start + pd.Timedelta(days=21)
+
+    fig, ax = plt.subplots(figsize=(12, 4.8))
+    for scenario, colour in (("weather_only", "#4C72B0"), ("with_lags", "#DD8452")):
+        block = scenarios[scenario]
+        timestamps = block["_timestamps"]
+        window = (timestamps >= start) & (timestamps <= end)
+        if window.any():
+            ax.plot(timestamps[window], np.asarray(block["_predictions"])[window],
+                    linewidth=1.6, color=colour, label=f"{scenario} prediction")
+
+    timestamps = scenarios["with_lags"]["_timestamps"]
+    actual = scenarios["with_lags"]["_y_test"]
+    window = (timestamps >= start) & (timestamps <= end)
+    ax.plot(timestamps[window], np.asarray(actual)[window], color="black",
+            linewidth=1.6, label="observed")
+
+    ax.axhline(config.EPISODE_THRESHOLD, color="grey", linestyle=":", linewidth=1)
+    ax.set_ylabel("PM2.5 (µg/m³)")
+    ax.set_title("Three weeks of January 2014, hourly")
+    ax.legend(loc="upper right", fontsize=8)
+    _save(fig, "10_forecast_window.png")
+
+
+def plot_monthly_error(scenarios: dict) -> None:
+    block = scenarios["with_lags"]
+    timestamps = pd.to_datetime(block["_timestamps"])
+    error = np.asarray(block["_predictions"]) - np.asarray(block["_y_test"])
+    frame = pd.DataFrame({"month": timestamps.dt.month, "abs_error": np.abs(error),
+                          "error": error})
+
+    grouped = frame.groupby("month").agg(mae=("abs_error", "mean"),
+                                         bias=("error", "mean")).round(2)
+
+    fig, ax = plt.subplots(figsize=(9, 4.4))
+    ax.bar(grouped.index - 0.18, grouped["mae"], width=0.34, color="#4C72B0",
+           label="MAE")
+    ax.bar(grouped.index + 0.18, grouped["bias"], width=0.34, color="#C44E52",
+           label="bias (pred − actual)")
+    ax.axhline(0, color="black", linewidth=0.8)
+    ax.set_xticks(range(1, 13))
+    ax.set_xlabel("Month of 2014")
+    ax.set_ylabel("µg/m³")
+    ax.set_title("Winter errors are larger in absolute terms")
+    ax.legend()
+    _save(fig, "11_monthly_error.png")
+
+
+def feature_importance(pipeline: Pipeline, top_n: int = 16) -> list[dict]:
+    preprocessor = pipeline.named_steps["preprocess"]
+    model = pipeline.named_steps["model"]
+    names = list(preprocessor.get_feature_names_out())
+
+    if hasattr(model, "feature_importances_"):
+        values = np.asarray(model.feature_importances_)
+    elif hasattr(model, "coef_"):
+        values = np.abs(np.ravel(model.coef_))
+    else:  # pragma: no cover
+        return []
+
+    order = np.argsort(values)[::-1][:top_n]
+    return [{"feature": names[index].split("__", 1)[-1],
+             "importance": round(float(values[index]), 5)} for index in order]
+
+
+def plot_importance(importances: list[dict]) -> None:
+    frame = pd.DataFrame(importances).sort_values("importance")
+    fig, ax = plt.subplots(figsize=(8, 6))
+    sns.barplot(data=frame, x="importance", y="feature", hue="feature", legend=False,
+                palette="crest", ax=ax)
+    ax.set_title("What the lagged forecast relies on")
+    ax.set_xlabel("Importance")
+    ax.set_ylabel("")
+    _save(fig, "12_feature_importance.png")
+
+
+def plot_episode_detection(scenarios: dict, baselines: dict) -> None:
+    rows = [
+        {"source": name, "precision": block["episodes"]["precision"],
+         "recall": block["episodes"]["recall"]}
+        for name, block in scenarios.items()
+    ]
+    rows.append({"source": "persistence", "precision":
+                 baselines["persistence_episodes"]["precision"],
+                 "recall": baselines["persistence_episodes"]["recall"]})
+    frame = pd.DataFrame(rows).melt(id_vars=["source"], var_name="metric",
+                                    value_name="score")
+
+    fig, ax = plt.subplots(figsize=(9, 4.4))
+    sns.barplot(data=frame, x="source", y="score", hue="metric", ax=ax,
+                palette=["#4C72B0", "#C44E52"])
+    ax.set_ylim(0, 1.05)
+    ax.set_xlabel("")
+    ax.set_title(f"Detecting hours above {config.EPISODE_THRESHOLD} µg/m³ in 2014")
+    ax.legend(title="")
+    _save(fig, "13_episode_detection.png")
+
+
+# --------------------------------------------------------------------------- #
+# Orchestration
+# --------------------------------------------------------------------------- #
+def train(df: pd.DataFrame) -> dict:
+    started = time.perf_counter()
+
+    scenarios = run_scenarios(df)
+    baselines = baseline_metrics(df)
+    importances = feature_importance(scenarios["with_lags"]["_pipeline"])
+
+    plot_scenario_comparison(scenarios, baselines)
+    plot_forecast_window(scenarios)
+    plot_monthly_error(scenarios)
+    plot_importance(importances)
+    plot_episode_detection(scenarios, baselines)
+
+    public = {
+        name: {key: value for key, value in block.items() if not key.startswith("_")}
+        for name, block in scenarios.items()
+    }
+
+    metrics = {
+        "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "dataset": {
+            "rows": int(len(df)),
+            "train_end": config.TRAIN_END,
+            "test_start": config.TEST_START,
+            "episode_threshold": config.EPISODE_THRESHOLD,
+        },
+        "split": "time-ordered: train <= 2013, test = 2014 (no random split)",
+        "scenarios": public,
+        "baselines": baselines,
+        "feature_importance": importances,
+        "runtime_seconds": round(time.perf_counter() - started, 1),
+    }
+
+    path = config.REPORT_DIR / "metrics.json"
+    path.write_text(json.dumps(metrics, indent=2), encoding="utf-8")
+
+    bundle = {
+        "weather_only": scenarios["weather_only"]["_pipeline"],
+        "with_lags": scenarios["with_lags"]["_pipeline"],
+        "threshold": config.EPISODE_THRESHOLD,
+        "metrics": metrics,
+        "trained_at": metrics["generated_at"],
+    }
+    model_path = config.ARTIFACT_DIR / "pm25_model.joblib"
+    joblib.dump(bundle, model_path)
+
+    print(f"[model] weather_only rmse={public['weather_only']['test']['rmse']:.2f} "
+          f"| with_lags rmse={public['with_lags']['test']['rmse']:.2f} "
+          f"| persistence rmse={baselines['persistence']['rmse']:.2f}")
+    print(f"[model] metrics -> {path.relative_to(config.ROOT)}")
+    print(f"[model] model   -> {model_path.relative_to(config.ROOT)}")
+    return metrics
+
+
+def load_model(path=None) -> dict:
+    path = path or (config.ARTIFACT_DIR / "pm25_model.joblib")
+    return joblib.load(path)
+
+
+def predict(df: pd.DataFrame, scenario: str = "weather_only",
+            bundle: dict | None = None) -> np.ndarray:
+    """Score a raw-format frame with the saved model."""
+    bundle = bundle or load_model()
+    include_lags = scenario == "with_lags"
+    numeric, categorical = feature_columns(include_lags)
+    frame = add_features(df)
+    if include_lags:
+        from .features import add_lag_features
+
+        frame = add_lag_features(frame)
+    return bundle[scenario].predict(frame[numeric + categorical])
