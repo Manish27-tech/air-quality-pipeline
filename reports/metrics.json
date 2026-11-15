@@ -1,0 +1,220 @@
+{
+  "generated_at": "2026-11-15T13:35:51+00:00",
+  "dataset": {
+    "rows": 43824,
+    "train_end": "2013-12-31 23:00:00",
+    "test_start": "2014-01-01 00:00:00",
+    "episode_threshold": 150
+  },
+  "split": "time-ordered: train <= 2013, test = 2014 (no random split)",
+  "scenarios": {
+    "weather_only": {
+      "description": "Meteorology and calendar only \u2014 works without a PM sensor",
+      "include_lags": false,
+      "features": 15,
+      "train_rows": 33096,
+      "test_rows": 8661,
+      "comparison": [
+        {
+          "model": "hist_gradient_boosting",
+          "r2_mean": 0.2967,
+          "rmse_mean": 76.802,
+          "mae_mean": 51.696,
+          "fit_seconds": 16.8
+        },
+        {
+          "model": "random_forest",
+          "r2_mean": 0.2741,
+          "rmse_mean": 77.785,
+          "mae_mean": 52.577,
+          "fit_seconds": 12.3
+        },
+        {
+          "model": "ridge",
+          "r2_mean": 0.241,
+          "rmse_mean": 80.012,
+          "mae_mean": 57.608,
+          "fit_seconds": 0.3
+        }
+      ],
+      "model": "hist_gradient_boosting",
+      "params": {
+        "l2_regularization": 0.3752055855124282,
+        "learning_rate": 0.05166664890993493,
+        "max_depth": 4,
+        "max_iter": 308
+      },
+      "test": {
+        "rmse": 69.056,
+        "mae": 47.061,
+        "r2": 0.4548,
+        "bias": -2.531,
+        "within_25": 0.4316,
+        "hours": 8661
+      },
+      "episodes": {
+        "threshold": 150,
+        "observed_episodes": 1737,
+        "flagged_hours": 1331,
+        "precision": 0.6176,
+        "recall": 0.4732,
+        "f1": 0.5359,
+        "true_positives": 822,
+        "false_positives": 509,
+        "false_negatives": 915,
+        "true_negatives": 6415
+      }
+    },
+    "with_lags": {
+      "description": "Adds recent PM2.5 history \u2014 a short-term forecast setting",
+      "include_lags": true,
+      "features": 24,
+      "train_rows": 30652,
+      "test_rows": 8266,
+      "comparison": [
+        {
+          "model": "ridge",
+          "r2_mean": 0.9368,
+          "rmse_mean": 22.819,
+          "mae_mean": 12.998,
+          "fit_seconds": 0.3
+        },
+        {
+          "model": "random_forest",
+          "r2_mean": 0.9259,
+          "rmse_mean": 25.142,
+          "mae_mean": 13.532,
+          "fit_seconds": 27.1
+        },
+        {
+          "model": "hist_gradient_boosting",
+          "r2_mean": 0.9161,
+          "rmse_mean": 26.816,
+          "mae_mean": 14.077,
+          "fit_seconds": 1166.5
+        }
+      ],
+      "model": "ridge",
+      "params": {
+        "alpha": 25.37815508265663
+      },
+      "test": {
+        "rmse": 21.243,
+        "mae": 12.019,
+        "r2": 0.9484,
+        "bias": -0.41,
+        "within_25": 0.8923,
+        "hours": 8266
+      },
+      "episodes": {
+        "threshold": 150,
+        "observed_episodes": 1673,
+        "flagged_hours": 1665,
+        "precision": 0.9057,
+        "recall": 0.9014,
+        "f1": 0.9035,
+        "true_positives": 1508,
+        "false_positives": 157,
+        "false_negatives": 165,
+        "true_negatives": 6436
+      }
+    }
+  },
+  "baselines": {
+    "climatology": {
+      "rmse": 93.533,
+      "mae": 68.953,
+      "r2": -0.0,
+      "bias": 0.363,
+      "within_25": 0.217,
+      "hours": 8266
+    },
+    "persistence": {
+      "rmse": 22.091,
+      "mae": 11.922,
+      "r2": 0.9442,
+      "bias": -0.068,
+      "within_25": 0.8914,
+      "hours": 8266
+    },
+    "persistence_episodes": {
+      "threshold": 150,
+      "observed_episodes": 1673,
+      "flagged_hours": 1673,
+      "precision": 0.9026,
+      "recall": 0.9026,
+      "f1": 0.9026,
+      "true_positives": 1510,
+      "false_positives": 163,
+      "false_negatives": 163,
+      "true_negatives": 6430
+    }
+  },
+  "feature_importance": [
+    {
+      "feature": "pm_lag_1",
+      "importance": 62.95945
+    },
+    {
+      "feature": "pm_diff_24",
+      "importance": 31.39036
+    },
+    {
+      "feature": "pm_lag_24",
+      "importance": 28.02776
+    },
+    {
+      "feature": "pm_lag_3",
+      "importance": 8.36312
+    },
+    {
+      "feature": "pm_roll_24",
+      "importance": 4.29459
+    },
+    {
+      "feature": "log_wind",
+      "importance": 3.94045
+    },
+    {
+      "feature": "cbwd_SE",
+      "importance": 3.60792
+    },
+    {
+      "feature": "hour_sin",
+      "importance": 3.54164
+    },
+    {
+      "feature": "dew_point_depression",
+      "importance": 3.35617
+    },
+    {
+      "feature": "cbwd_NW",
+      "importance": 3.35262
+    },
+    {
+      "feature": "part_of_day_afternoon",
+      "importance": 2.62026
+    },
+    {
+      "feature": "Iws",
+      "importance": 2.56969
+    },
+    {
+      "feature": "TEMP",
+      "importance": 2.54202
+    },
+    {
+      "feature": "season_Summer",
+      "importance": 1.83235
+    },
+    {
+      "feature": "part_of_day_morning",
+      "importance": 1.74911
+    },
+    {
+      "feature": "cbwd_NE",
+      "importance": 1.62447
+    }
+  ],
+  "runtime_seconds": 6729.8
+}
