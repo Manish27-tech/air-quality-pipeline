@@ -189,3 +189,74 @@ def tune_model(name: str, X_train, y_train, include_lags: bool
               for key, value in search.best_params_.items()}
     print(f"[model] tuned {name}: cv rmse={-search.best_score_:.2f}")
     return search.best_estimator_, params
+
+
+# --------------------------------------------------------------------------- #
+# Scenarios
+# --------------------------------------------------------------------------- #
+def time_split(df: pd.DataFrame, X: pd.DataFrame, y: pd.Series
+               ) -> tuple[pd.DataFrame, pd.DataFrame, pd.Series, pd.Series, pd.Series]:
+    timestamps = pd.to_datetime(df.loc[X.index, config.TIMESTAMP])
+    is_train = (timestamps < pd.Timestamp(config.TEST_START)).to_numpy()
+    return (
+        X.loc[is_train], X.loc[~is_train],
+        y.loc[is_train], y.loc[~is_train],
+        timestamps,
+    )
+
+
+def run_scenarios(df: pd.DataFrame) -> dict:
+    """Fit both feature settings and record their hold-out behaviour."""
+    results: dict[str, dict] = {}
+
+    for scenario, description in config.SCENARIOS.items():
+        include_lags = scenario == "with_lags"
+        X, y = build_feature_matrix(df, include_lags=include_lags)
+        X_train, X_test, y_train, y_test, timestamps = time_split(df, X, y)
+
+        comparison = compare_models(X_train, y_train, include_lags)
+        best_name = comparison[0]["model"]
+        pipeline, params = tune_model(best_name, X_train, y_train, include_lags)
+        pipeline.fit(X_train, y_train)
+        predictions = pipeline.predict(X_test)
+
+        results[scenario] = {
+            "description": description,
+            "include_lags": include_lags,
+            "features": int(X.shape[1]),
+            "train_rows": int(len(X_train)),
+            "test_rows": int(len(X_test)),
+            "comparison": comparison,
+            "model": best_name,
+            "params": params,
+            "test": regression_metrics(y_test, predictions),
+            "episodes": episode_metrics(y_test, predictions),
+            "_pipeline": pipeline,
+            "_y_test": y_test,
+            "_predictions": predictions,
+            "_timestamps": pd.to_datetime(df.loc[X_test.index, config.TIMESTAMP]),
+        }
+        print(f"[model] {scenario:<12} rmse={results[scenario]['test']['rmse']:.2f} "
+              f"r2={results[scenario]['test']['r2']:.3f} "
+              f"episode recall={results[scenario]['episodes']['recall']:.3f}")
+    return results
+
+
+def baseline_metrics(df: pd.DataFrame) -> dict:
+    """Two reference forecasts that any model must beat.
+
+    - *climatology*: predict the 2010-2013 average, the weather-only floor;
+    - *persistence*: predict the previous hour, the forecast floor once lags exist.
+    """
+    X, y = build_feature_matrix(df, include_lags=True)
+    X_train, X_test, y_train, y_test, _ = time_split(df, X, y)
+
+    climatology = np.full(len(y_test), float(y_train.mean()))
+    persistence = X_test["pm_lag_1"].to_numpy()
+
+    use = ~np.isnan(persistence)
+    return {
+        "climatology": regression_metrics(y_test, climatology),
+        "persistence": regression_metrics(y_test.to_numpy()[use], persistence[use]),
+        "persistence_episodes": episode_metrics(y_test.to_numpy()[use], persistence[use]),
+    }
