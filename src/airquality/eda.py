@@ -232,3 +232,68 @@ def plot_correlation_heatmap(df: pd.DataFrame) -> None:
                 square=True, cbar_kws={"shrink": 0.75}, annot_kws={"size": 8}, ax=ax)
     ax.set_title("Correlation matrix of weather and calendar features")
     _save(fig, "05_correlation_heatmap.png")
+
+
+# --------------------------------------------------------------------------- #
+# Missingness and episodes
+# --------------------------------------------------------------------------- #
+def plot_missing_heatmap(df: pd.DataFrame) -> None:
+    timestamps = pd.to_datetime(df[config.TIMESTAMP])
+    table = (df.assign(missing=df[config.TARGET].isna(),
+                       year=timestamps.dt.year, month=timestamps.dt.month)
+             .pivot_table(index="year", columns="month", values="missing",
+                          aggfunc="mean") * 100)
+
+    fig, ax = plt.subplots(figsize=(9, 3.6))
+    sns.heatmap(table, annot=True, fmt=".1f", cmap="rocket_r", cbar_kws={
+        "label": "% hours missing"}, ax=ax)
+    ax.set_xlabel("Month")
+    ax.set_ylabel("Year")
+    ax.set_title("Missing target hours cluster in multi-day runs")
+    _save(fig, "06_missing_heatmap.png")
+
+
+def plot_episodes(df: pd.DataFrame) -> None:
+    timestamps = pd.to_datetime(df[config.TIMESTAMP])
+    frame = df.assign(
+        year=timestamps.dt.year,
+        month=timestamps.dt.month,
+        episode=df[config.TARGET] > config.EPISODE_THRESHOLD,
+    )
+
+    yearly = frame.groupby("year")["episode"].agg(["mean", "sum"])
+    monthly = (frame.groupby(["year", "month"])["episode"].mean().reset_index())
+
+    fig, axes = plt.subplots(1, 2, figsize=(13, 4.4))
+    axes[0].bar(yearly.index.astype(str), yearly["mean"] * 100, color="#C44E52")
+    for index, value in enumerate(yearly["mean"] * 100):
+        axes[0].text(index, value + 0.6, f"{value:.1f}%", ha="center", fontsize=9)
+    axes[0].set_ylabel("Hours above 150 µg/m³ (%)")
+    axes[0].set_title("Heavy-pollution burden by year")
+
+    axes[1].plot(pd.to_datetime(monthly.assign(day=1)[["year", "month", "day"]]),
+                 monthly["episode"] * 100, color="#4C72B0", linewidth=1.6)
+    axes[1].set_ylabel("Hours above 150 µg/m³ (%)")
+    axes[1].set_title("Monthly episode share")
+    axes[1].tick_params(axis="x", rotation=30)
+    _save(fig, "07_episodes.png")
+
+
+def plot_weather_scatter(df: pd.DataFrame) -> None:
+    engineered = add_features(df)
+    sample = engineered.dropna(subset=[config.TARGET]).sample(
+        4_000, random_state=config.RANDOM_STATE)
+
+    fig, axes = plt.subplots(1, 3, figsize=(14, 4.2), sharey=True)
+    for ax, (column, label) in zip(
+        axes, [("log_wind", "log1p(wind run)"), ("dew_point_depression",
+                                                 "TEMP − DEWP (°C)"),
+               ("PRES", "Pressure (hPa)")], strict=True
+    ):
+        ax.scatter(sample[column], sample[config.TARGET], s=5, alpha=0.25,
+                   color="#4C72B0", edgecolor="none")
+        ax.set_xlabel(label)
+        ax.set_ylabel("PM2.5 (µg/m³)")
+        ax.set_ylim(0, 500)
+    fig.suptitle("Meteorology explains the broad strokes, not the spikes", fontsize=13)
+    _save(fig, "08_weather_scatter.png")
