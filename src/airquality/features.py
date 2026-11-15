@@ -67,3 +67,28 @@ def add_weather_features(df: pd.DataFrame) -> pd.DataFrame:
     # Wind direction stays categorical and is one-hot encoded inside the pipeline,
     # so no dummy block is created here.
     return out
+
+
+# --------------------------------------------------------------------------- #
+# Pollutant history (leakage-safe)
+# --------------------------------------------------------------------------- #
+def add_lag_features(df: pd.DataFrame) -> pd.DataFrame:
+    """Add lagged and rolling PM2.5 statistics, all shifted into the past.
+
+    ``shift(1)`` before every window guarantees that the value at hour *t* only
+    uses hours <= *t-1*. Without that shift the rolling mean would contain the
+    target itself and the model would look far better than it is.
+    """
+    out = df.sort_values(config.TIMESTAMP).copy()
+    series = out[config.TARGET]
+
+    for lag in config.LAGS:
+        out[f"pm_lag_{lag}"] = series.shift(lag)
+
+    for window in config.ROLLING_WINDOWS:
+        out[f"pm_roll_{window}"] = (
+            series.shift(1).rolling(window=window, min_periods=window // 2).mean()
+        )
+
+    out["pm_diff_24"] = out["pm_lag_1"] - out["pm_lag_24"]
+    return out
